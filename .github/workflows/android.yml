@@ -1,0 +1,144 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  ANDROID_HOME: /opt/android-sdk
+  ANDROID_SDK_ROOT: /opt/android-sdk
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install Java 21
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq openjdk-21-jdk > /dev/null 2>&1
+          echo "JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64" >> $GITHUB_ENV
+
+      - name: Download Android SDK cmdline-tools
+        run: |
+          mkdir -p $ANDROID_HOME/cmdline-tools
+          curl -fsSL \
+            https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip \
+            -o /tmp/cmdline-tools.zip
+          unzip -q /tmp/cmdline-tools.zip -d $ANDROID_HOME/cmdline-tools/
+          mv $ANDROID_HOME/cmdline-tools/cmdline-tools \
+             $ANDROID_HOME/cmdline-tools/latest
+
+      - name: Accept licenses & install SDK components
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+            --sdk_root=$ANDROID_HOME \
+            --licenses > /dev/null 2>&1 || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+            --sdk_root=$ANDROID_HOME \
+            "platforms;android-34" \
+            "build-tools;34.0.0"
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build Web App
+        run: npm run build
+
+      - name: Add Android platform
+        run: npx cap add android
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Set Gradle Properties (CI mode)
+        run: |
+          mkdir -p android
+          echo "org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8" >> android/gradle.properties
+          echo "android.useAndroidX=true" >> android/gradle.properties
+          echo "android.enableJetifier=true" >> android/gradle.properties
+          echo "org.gradle.daemon=false" >> android/gradle.properties
+          echo "org.gradle.parallel=false" >> android/gradle.properties
+
+      - name: Build APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Find APK
+        id: find_apk
+        run: |
+          APK=$(find . -name "*.apk" -not -path "./build/*" | head -1)
+          echo "apk_path=$APK" >> $GITHUB_OUTPUT
+          echo "APK: $APK"
+          ls -lh "$APK"
+
+      - name: Upload APK as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zi-book-apk
+          path: ${{ steps.find_apk.outputs.apk_path }}
+          retention-days: 1
+
+      # ── 发布 v2.0.0 ─────────────────────────────────────────
+      - name: Create v2.0.0 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v2.0.0"
+          APK="${{ steps.find_apk.outputs.apk_path }}"
+          
+          # 检查是否已有此 tag 的 release
+          RESP=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/$TAG")
+
+          if [ "$RESP" = "200" ]; then
+            echo "Release $TAG exists, deleting..."
+            RELEASE_ID=$(curl -s -H "Authorization: token $GH_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/tags/$TAG" \
+              | jq -r '.id')
+            curl -s -X DELETE \
+              -H "Authorization: token $GH_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID"
+            # 删除本地 tag
+            git push --delete origin "$TAG" 2>/dev/null || true
+          fi
+
+          # 创建新 release
+          curl -s -X POST \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"tag_name\":\"$TAG\",\"name\":\"zi-book v2.0.0\",\"body\":\"🤖 自动构建版本，2.0 正式发布\"}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases" \
+            | jq -r '.id' > /tmp/release_id
+          echo "RELEASE_ID=$(cat /tmp/release_id)" >> $GITHUB_OUTPUT
+          echo "Release $TAG created with ID $(cat /tmp/release_id)"
+
+      - name: Upload APK to Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RELEASE_ID="${{ steps.create_release.outputs.RELEASE_ID }}"
+          APK="${{ steps.find_apk.outputs.apk_path }}"
+          
+          curl -s -X POST \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "@$APK" \
+            "https://uploads.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID/assets?name=zi-book.apk&label=zi-book+Android+APK" \
+            | jq -r '.browser_download_url' > /tmp/download_url
+          
+          echo "✅ APK 下载地址：$(cat /tmp/download_url)"
