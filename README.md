@@ -1,30 +1,29 @@
-# 妙达 WebView App
+# zi-book
 
-一个简单的 Android WebView App，嵌入 https://app-elbt80ehh5oh.miaoda.online
+妙达 App（2.0）。
+
+## 下载
+
+👉 **[点击下载 APK（v2.0.0）](https://github.com/lzd4442/zi-book/releases/download/v2.0.0/zi-book.apk)**
+
+下载后直接安装（Android 7.0+）。
 
 ## 技术栈
 
-- Vite + TypeScript
-- Capacitor 8
+- 前端：Vite + TypeScript + Capacitor
+- 打包：GitHub Actions 自动编译 APK
+- 核心：WebView iframe 包装壳
 
 ## 开发
 
 ```bash
 npm install
 npm run build
+npx cap add android
 npx cap sync android
 npx cap open android   # 用 Android Studio 打开
 ```
 
-## 构建 APK
+## 自动构建
 
-需要 Java 21 + Android SDK 35：
-
-```bash
-export JAVA_HOME=/path/to/jdk-21
-export ANDROID_HOME=/path/to/android-sdk
-cd android
-./gradlew assembleDebug
-```
-
-APK 输出在 `android/app/build/outputs/apk/debug/app-debug.apk`
+每次推送代码，GitHub Actions 自动编译 APK 并发布到 Release。
