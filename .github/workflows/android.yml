@@ -91,13 +91,13 @@ jobs:
 
       # ── 发布 v2.0.0 ─────────────────────────────────────────
       - name: Create v2.0.0 Release
+        id: create_release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v2.0.0"
-          APK="${{ steps.find_apk.outputs.apk_path }}"
-          
-          # 检查是否已有此 tag 的 release
+
+          # 检查是否已有此 tag 的 release，存在则删除
           RESP=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "Authorization: token $GH_TOKEN" \
             "https://api.github.com/repos/${{ github.repository }}/releases/tags/$TAG")
@@ -110,32 +110,23 @@ jobs:
             curl -s -X DELETE \
               -H "Authorization: token $GH_TOKEN" \
               "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID"
-            # 删除本地 tag
-            git push --delete origin "$TAG" 2>/dev/null || true
           fi
 
           # 创建新 release
-          curl -s -X POST \
+          RELEASE_JSON=$(curl -s -X POST \
             -H "Authorization: token $GH_TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{\"tag_name\":\"$TAG\",\"name\":\"zi-book v2.0.0\",\"body\":\"🤖 自动构建版本，2.0 正式发布\"}" \
-            "https://api.github.com/repos/${{ github.repository }}/releases" \
-            | jq -r '.id' > /tmp/release_id
-          echo "RELEASE_ID=$(cat /tmp/release_id)" >> $GITHUB_OUTPUT
-          echo "Release $TAG created with ID $(cat /tmp/release_id)"
+            -d '{"tag_name":"v2.0.0","name":"zi-book v2.0.0","body":"🤖 自动构建版本，2.0 正式发布"}' \
+            "https://api.github.com/repos/${{ github.repository }}/releases")
+          RELEASE_ID=$(echo "$RELEASE_JSON" | jq -r '.id')
+          echo "RELEASE_ID=$RELEASE_ID" >> $GITHUB_OUTPUT
+          echo "Release v2.0.0 created with ID $RELEASE_ID"
 
       - name: Upload APK to Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          RELEASE_ID="${{ steps.create_release.outputs.RELEASE_ID }}"
+          TAG="v2.0.0"
           APK="${{ steps.find_apk.outputs.apk_path }}"
-          
-          curl -s -X POST \
-            -H "Authorization: token $GH_TOKEN" \
-            -H "Content-Type: application/octet-stream" \
-            --data-binary "@$APK" \
-            "https://uploads.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID/assets?name=zi-book.apk&label=zi-book+Android+APK" \
-            | jq -r '.browser_download_url' > /tmp/download_url
-          
-          echo "✅ APK 下载地址：$(cat /tmp/download_url)"
+          gh release upload "$TAG" "$APK" --repo "${{ github.repository }}" --clobber
+          echo "✅ APK 已上传到 https://github.com/${{ github.repository }}/releases/tag/$TAG"
