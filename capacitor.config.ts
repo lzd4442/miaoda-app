@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.miaoda.app',
-  appName: '妙达',
+  appName: 'zi-book',
   webDir: 'dist',
   android: {
     backgroundColor: '#ffffff',
