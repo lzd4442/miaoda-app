@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">妙达</string>
-    <string name="title_activity_main">妙达</string>
+    <string name="app_name">zi-book</string>
+    <string name="title_activity_main">zi-book</string>
     <string name="package_name">com.miaoda.app</string>
     <string name="custom_url_scheme">com.miaoda.app</string>
 </resources>
